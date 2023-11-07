@@ -61,6 +61,10 @@ if __name__ == '__main__':
     # get categorical columns
     categorical_cols = [cname for cname in X.columns if X[cname].dtype == "object"]
 
+
+    print(f"Numerical columns: {numerical_cols}")
+    print(f"Categorical columns: {categorical_cols}")
+
     # binary encode categorical columns
     from category_encoders.binary import BinaryEncoder
     encoder = BinaryEncoder(cols=categorical_cols)
