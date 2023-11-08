@@ -97,8 +97,8 @@ if __name__ == '__main__':
     print("Starting data preprocessing...")
 
     # competition specific, change as needed
-    COMPETITION_NAME = 'playground-series-s3e24'
-    TARGET_COLUMN = 'smoking'
+    COMPETITION_NAME = 'tabular-playground-series-sep-2021'
+    TARGET_COLUMN = 'claim'
     ID_COLUMN = 'id'
 
     ######################## Define data paths ########################
@@ -125,7 +125,6 @@ if __name__ == '__main__':
     )
 
     ######################## Save the preprocessed training data ########################
-    print("Saving preprocessed training data...")
     X_train.to_csv(os.path.join(data_dir, 'X_train_preprocessed.csv'), index=False)
     y_train.to_csv(os.path.join(data_dir, 'y_train.csv'), index=False)
     joblib.dump(imputer_num, os.path.join(data_dir, 'imputer_num.joblib'))
