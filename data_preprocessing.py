@@ -5,6 +5,7 @@ from category_encoders.binary import BinaryEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
 import joblib
 
 
@@ -42,96 +43,125 @@ def reduce_mem_usage(df, verbose=True):
 
     return df
 
+
 # Function to preprocess the data
-def preprocess_data(df_reduced, encoder=None, imputer_num=None, imputer_cat=None, scaler=None,
-                    fit=True):
-    # Reduce memory usage
-    df_reduced = reduce_mem_usage(df_reduced)
+# Function to preprocess the data
+def preprocess_data(df, numerical_cols, categorical_cols, encoder=None, imputer_num=None, imputer_cat=None, scaler=None, fit=True, id_column=None):
+    # Reduce memory usage in place
+    reduce_mem_usage(df)
 
-    # Define categorical and numerical columns
-    # These should be updated to reflect your dataset's columns
-    # get numerical columns
-    numerical_cols = [cname for cname in df_reduced.columns if
-                      df_reduced[cname].dtype in ['int8', 'int16', 'int32', 'int64', 'float16', 'float32', 'float64']]
+    # Separate ID column if present
+    df_id = df[id_column] if id_column in df else pd.DataFrame()
 
-    # get categorical columns
-    categorical_cols = [cname for cname in df_reduced.columns if df_reduced[cname].dtype == "object"]
+    # Remove ID column for processing
+    if id_column in numerical_cols: numerical_cols.remove(id_column)
+    if id_column in categorical_cols: categorical_cols.remove(id_column)
 
-    # Separate into categorical and numerical columns
-    X_cat = df_reduced[categorical_cols].astype(str)
-    X_num = df_reduced[numerical_cols]
-
-    if X_cat.empty or X_num.empty:
-        raise ValueError("Categorical or Numerical dataframe is empty after splitting.")
-
-    # Fit or transform the data with the encoder and imputers
+    # Initialize imputers and scaler if fitting
     if fit:
-        # Impute missing values in numerical columns
-        imputer_num = SimpleImputer(strategy='mean')
-        X_num = imputer_num.fit_transform(X_num)
+        if numerical_cols:
+            imputer_num = SimpleImputer(strategy='mean')
+            scaler = StandardScaler()
+        if categorical_cols:
+            imputer_cat = SimpleImputer(strategy='most_frequent')
+            encoder = BinaryEncoder(cols=categorical_cols)
 
-        # Impute missing values in categorical columns (after encoding)
-        imputer_cat = SimpleImputer(strategy='most_frequent')
-        X_cat = imputer_cat.fit_transform(X_cat)
+    # Process categorical columns if they exist
+    if categorical_cols:
+        # Impute and encode categorical columns
+        if fit:
+            df[categorical_cols] = imputer_cat.fit_transform(df[categorical_cols])
+            df = encoder.fit_transform(df)
+        else:
+            df[categorical_cols] = imputer_cat.transform(df[categorical_cols])
+            df = encoder.transform(df)
 
-        # Fit and transform categorical columns with Binary Encoder
-        encoder = BinaryEncoder(cols=categorical_cols)
-        X_cat = encoder.fit_transform(X_cat)
+    # Process numerical columns if they exist
+    if numerical_cols:
+        # Impute and scale numerical columns
+        if fit:
+            df[numerical_cols] = imputer_num.fit_transform(df[numerical_cols])
+            df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
+        else:
+            df[numerical_cols] = imputer_num.transform(df[numerical_cols])
+            df[numerical_cols] = scaler.transform(df[numerical_cols])
 
-        # Standardize numerical columns
-        scaler = StandardScaler()
-        X_num = scaler.fit_transform(X_num)
-    else:
-        X_num = imputer_num.transform(X_num)
-        X_cat = imputer_cat.transform(X_cat)
-        X_cat = encoder.transform(X_cat)
-        X_num = scaler.transform(X_num)
+    # Combine ID column back if it was separated
+    if not df_id.empty:
+        df = pd.concat([df_id, df], axis=1)
 
-    # Reconstruct the dataframe
-    X_processed = np.concatenate([X_num, X_cat], axis=1)
-
-    return X_processed, encoder, imputer_num, imputer_cat, scaler
-
+    return df, encoder, imputer_num, imputer_cat, scaler
 
 # Main section
 if __name__ == '__main__':
+    print("Starting data preprocessing...")
 
-    competition_name = 'playground-series-s3e24'
+    # competition specific, change as needed
+    COMPETITION_NAME = 'playground-series-s3e24'
+    TARGET_COLUMN = 'smoking'
+    ID_COLUMN = 'id'
 
-    # Define data paths
-    data_dir = os.path.join(os.getcwd(), competition_name, 'data')
+    ######################## Define data paths ########################
+    data_dir = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
     train_path = os.path.join(data_dir, 'train.csv')
     test_path = os.path.join(data_dir, 'test.csv')
 
-    # Load data
+    ######################## Load and split the training data ########################
     df_train = pd.read_csv(train_path)
-    df_test = pd.read_csv(test_path)
+    X = df_train.drop(TARGET_COLUMN, axis=1)
+    y = df_train[TARGET_COLUMN]
+    print("Splitting data into train and validation sets...")
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Define target column
-    target_column = 'smoking'  # Replace with actual target column name
+    ######################## Define columns ########################
+    numerical_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
 
-    print(f"Dytpes: {df_train.dtypes}")
+    ######################## Preprocess the training data ########################
+    print("---------------------------------")
+    print("Preprocessing training data...")
+    X_train, encoder, imputer_num, imputer_cat, scaler = preprocess_data(
+        X_train, numerical_cols, categorical_cols, fit=True, id_column=ID_COLUMN
+    )
 
-    # Split data into features and target
-    X_train = df_train.drop(target_column, axis=1,
-                            inplace=False)
-    y_train = df_train[target_column]
-
-    # Preprocess training data
-    X_train_processed, encoder, imputer_num, imputer_cat, scaler = preprocess_data(X_train)
-
-    # Save preprocessed training data, target and the encoders for later use
-    pd.DataFrame(X_train_processed).to_csv(os.path.join(data_dir, 'X_train_preprocessed.csv'), index=False)
+    ######################## Save the preprocessed training data ########################
+    print("Saving preprocessed training data...")
+    X_train.to_csv(os.path.join(data_dir, 'X_train_preprocessed.csv'), index=False)
     y_train.to_csv(os.path.join(data_dir, 'y_train.csv'), index=False)
-    joblib.dump(encoder, os.path.join(data_dir, 'encoder.joblib'))
     joblib.dump(imputer_num, os.path.join(data_dir, 'imputer_num.joblib'))
     joblib.dump(imputer_cat, os.path.join(data_dir, 'imputer_cat.joblib'))
     joblib.dump(scaler, os.path.join(data_dir, 'scaler.joblib'))
+    if categorical_cols:  # Save the encoder only if there are categorical columns to encode
+        joblib.dump(encoder, os.path.join(data_dir, 'encoder.joblib'))
 
-    # Preprocess test data with the same encoder, imputers and scaler
-    # Note that the target column is not present in the test set, hence we drop only the ID column
-    X_test_processed, _, _, _, _ = preprocess_data(df_test, encoder, imputer_num,
-                                                   imputer_cat, scaler, fit=False)
-    pd.DataFrame(X_test_processed).to_csv(os.path.join(data_dir, 'X_test_preprocessed.csv'), index=False)
+    ######################## Preprocess the validation data ########################
+    print("---------------------------------")
+    print("Preprocessing validation data...")
+    X_val, _, _, _, _ = preprocess_data(
+        X_val, numerical_cols, categorical_cols, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
+    )
+    X_val.to_csv(os.path.join(data_dir, 'X_val_preprocessed.csv'), index=False)
+    y_val.to_csv(os.path.join(data_dir, 'y_val.csv'), index=False)
 
-    print("Data preprocessing completed and files saved!")
+    ######################## Preprocess the full training data ########################
+    print("---------------------------------")
+    print("Preprocessing full training data...")
+    df_full_train = pd.read_csv(train_path)
+    X_full_train = df_full_train.drop(TARGET_COLUMN, axis=1)
+    y_full_train = df_full_train[TARGET_COLUMN]
+    X_full_train, _, _, _, _ = preprocess_data(
+        X_full_train, numerical_cols, categorical_cols, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
+    )
+    X_full_train.to_csv(os.path.join(data_dir, 'X_full_train_preprocessed.csv'), index=False)
+    y_full_train.to_csv(os.path.join(data_dir, 'y_full_train.csv'), index=False)
+
+    ######################## Preprocess the test data ########################
+    print("---------------------------------")
+    print("Preprocessing test data...")
+    df_test = pd.read_csv(test_path)
+    X_test, _, _, _, _ = preprocess_data(
+        df_test, numerical_cols, categorical_cols, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
+    )
+    X_test.to_csv(os.path.join(data_dir, 'X_test_preprocessed.csv'), index=False)
+
+    print("Data preprocessing completed.")

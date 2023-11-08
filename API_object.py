@@ -51,8 +51,6 @@ if __name__ == '__main__':
     kaggle_connector = KaggleAPIConnector('playground-series-s3e24')
     kaggle_connector.download_data()
 
-    print(kaggle_connector.data_dir)
-
     # Now you can do other tasks like loading the data, and when ready, submit your results
     submission_path = os.path.join(kaggle_connector.data_dir, 'submission.csv')
-    # kaggle_connector.submit(submission_path, 'Your submission message')
+    kaggle_connector.submit(submission_path, 'Your submission message')
