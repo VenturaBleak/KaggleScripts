@@ -4,65 +4,38 @@ import numpy as np
 import os
 import lightgbm as lgb
 import optuna
-from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix, classification_report
+from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix, classification_report, log_loss
 from optuna.samplers import TPESampler
 from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import LogisticRegression
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Define the Optuna objective function
-def objective(trial, X_train, y_train, X_val, y_val):
-    N_SPLITS = 5
-    param_grid = {
-    # "device_type": trial.suggest_categorical("device_type", ['gpu']),
-    "n_estimators": trial.suggest_categorical("n_estimators", [10000]),
-    "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3),
-    "num_leaves": trial.suggest_int("num_leaves", 20, 3000, step=20),
-    "max_depth": trial.suggest_int("max_depth", 3, 12),
-    "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 200, 10000, step=100),
-    "lambda_l1": trial.suggest_int("lambda_l1", 0, 100, step=5),
-    "lambda_l2": trial.suggest_int("lambda_l2", 0, 100, step=5),
-    "min_gain_to_split": trial.suggest_float("min_gain_to_split", 0, 15),
-    "bagging_fraction": trial.suggest_float(
-        "bagging_fraction", 0.2, 0.95, step=0.1
-    ),
-    "bagging_freq": trial.suggest_categorical("bagging_freq", [1]),
-    "feature_fraction": trial.suggest_float(
-        "feature_fraction", 0.2, 0.95, step=0.1
-    ),
+
+# Define the Optuna objective function with k-fold cross-validation
+def objective(trial, X, y, n_splits=5):
+    # Hyperparameters to be optimized by Optuna
+    param = {
+        "objective": 'binary',
+        "metric": 'binary_logloss',
+        "verbosity": -1,
+        "boosting_type": "gbdt",
+        "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.1, log=True),
+        "lambda_l1": trial.suggest_float("lambda_l1", 1e-8, 10.0, log=True),
+        "lambda_l2": trial.suggest_float("lambda_l2", 1e-8, 10.0, log=True),
+        "num_leaves": trial.suggest_int("num_leaves", 2, 256),
+        "feature_fraction": trial.suggest_float("feature_fraction", 0.4, 1.0),
+        "bagging_fraction": trial.suggest_float("bagging_fraction", 0.4, 1.0),
+        "bagging_freq": trial.suggest_int("bagging_freq", 1, 7),
+        "min_child_samples": trial.suggest_int("min_child_samples", 5, 100)
     }
 
-    cv = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=42)
+    # Suggest the number of boosting rounds for the model
+    n_estimators = trial.suggest_int("n_estimators", 50, 500)
 
-    cv_scores = np.empty(N_SPLITS)
-    for idx, (train_idx, test_idx) in enumerate(cv.split(X_train, y_train)):
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
-
-        model = lgbm.LGBMClassifier(objective="binary", **param_grid)
-
-        model.fit(
-            X_train,
-            y_train,
-            eval_set=[(X_val, y_val)],
-            eval_metric="binary_logloss",
-            early_stopping_rounds=100,
-            callbacks=[
-                lgb.LightGBMPruningCallback(trial, "binary_logloss")
-            ],  # Add a pruning callback
-        )
-
-        preds = model.predict_proba(X_test)
-        cv_scores[idx] = log_loss(y_test, preds)
-
-    return np.mean(cv_scores)
-
-# Function to perform k-fold cross-validation on the full training set
-def k_fold_cross_validation(X, y, best_params, n_splits=10, seed=42):
-    kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    models = []
-    fold_aucs = []
+    # Perform n_splits cross-validation
+    kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    cv_scores = []
 
     for train_index, valid_index in kf.split(X, y):
         X_train_fold, X_valid_fold = X.iloc[train_index], X.iloc[valid_index]
@@ -72,19 +45,19 @@ def k_fold_cross_validation(X, y, best_params, n_splits=10, seed=42):
         dvalid = lgb.Dataset(X_valid_fold, label=y_valid_fold)
 
         model = lgb.train(
-            best_params,
+            param,
             dtrain,
+            num_boost_round=n_estimators,
             valid_sets=[dvalid]
         )
 
-        valid_pred = model.predict(X_valid_fold)
-        fold_auc = roc_auc_score(y_valid_fold, valid_pred)
-        fold_aucs.append(fold_auc)
-        models.append(model)
+        # Predict on the validation fold
+        valid_pred = model.predict(X_valid_fold, num_iteration=model.best_iteration)
+        cv_score = log_loss(y_valid_fold, valid_pred)
+        cv_scores.append(cv_score)
 
-    print(f'Mean ROC AUC for {n_splits}-fold CV: {np.mean(fold_aucs)}')
-    return models
-
+    # The objective is to minimize the mean of all cross-validation folds
+    return np.mean(cv_scores)
 
 # Function to train a logistic regression classifier
 def train_and_evaluate_linear_classifier(X_train, y_train, X_val, y_val, features):
@@ -117,9 +90,11 @@ def train_and_evaluate_lgbm_classifier(X_train, y_train, X_val, y_val, best_para
 
     model = lgb.train(
         best_params,
-        dtrain,
-        valid_sets=[dvalid]
+        dtrain
     )
+
+    if y_val is None:
+        return model, None
 
     val_predictions = model.predict(X_val, num_iteration=model.best_iteration)
     val_auc = roc_auc_score(y_val, val_predictions)
@@ -144,9 +119,10 @@ def visualize_feature_importance(model, features):
 
 # The main part of the script
 if __name__ == '__main__':
-    COMPETITION_NAME = 'tabular-playground-series-sep-2021'
-    TARGET_COLUMN = 'claim'
-    ID_COLUMN = 'id'  # Replace with your actual ID column name
+    # competition specific, change as needed
+    COMPETITION_NAME = 'spaceship-titanic'
+    TARGET_COLUMN = 'Transported'
+    ID_COLUMN = 'PassengerId'
 
     # Define constants
     DATA_DIR = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
@@ -165,9 +141,15 @@ if __name__ == '__main__':
     y_val = pd.read_csv(val_target_file)[TARGET_COLUMN]
 
     # Create a study object and optimize the objective function
-    sampler = TPESampler(seed=1)  # Make the optimization reproducible
-    study = optuna.create_study(direction='maximize', sampler=sampler)
-    study.optimize(lambda trial: objective(trial, X_train, y_train, X_val, y_val), n_trials=5)
+    sampler = TPESampler(seed=42)  # Make the optimization reproducible
+    study = optuna.create_study(direction='minimize', sampler=sampler)
+    study.optimize(lambda trial: objective(trial, X_train, y_train), n_trials=30)
+
+    # Output the best trial information
+    print(f"Best value (log loss): {study.best_value:.5f}")
+    print("Best hyperparameters:")
+    for key, value in study.best_params.items():
+        print(f"    {key}: {value}")
 
     # Retrieve the best parameters from the study
     best_params = study.best_params
@@ -196,12 +178,9 @@ if __name__ == '__main__':
     X_full_train = pd.read_csv(full_train_file).drop(ID_COLUMN, axis=1)
     y_full_train = pd.read_csv(full_train_target_file)[TARGET_COLUMN]
 
-    # Perform k-fold cross-validation on the full training set
-    models = k_fold_cross_validation(X_full_train, y_full_train, best_params)
-
-    # Select the best model or ensemble them as needed
-    # For simplicity, let's use the first model as our final model
-    final_model = models[0]
+    # Use best hyperparameters to train the model on the full training dataset
+    print("Training model on the full training set with best parameters found...")
+    final_model, _ = train_and_evaluate_lgbm_classifier(X_full_train, y_full_train, None, None, best_params)
 
     # Visualize feature importance for the final LightGBM model
     print("Visualizing feature importance for the final LightGBM model...")
@@ -214,6 +193,12 @@ if __name__ == '__main__':
     test_ids = X_test[ID_COLUMN]
     X_test = X_test.drop(ID_COLUMN, axis=1)
     test_predictions = final_model.predict(X_test)
+
+    # convert to binary predictions
+    test_predictions = np.rint(test_predictions)
+
+    # convert to true/false
+    test_predictions = test_predictions.astype(bool)
 
     # Prepare submission
     submission = pd.DataFrame({ID_COLUMN: test_ids, TARGET_COLUMN: test_predictions})

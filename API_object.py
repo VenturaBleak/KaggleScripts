@@ -46,7 +46,7 @@ class KaggleAPIConnector:
 
 # Usage
 if __name__ == '__main__':
-    COMPETITION_NAME = 'tabular-playground-series-sep-2021'
+    COMPETITION_NAME = 'spaceship-titanic'
 
     # You would set these environment variables outside of the script for security reasons
     kaggle_username = os.environ.get('KAGGLE_USERNAME')
