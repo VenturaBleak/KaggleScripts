@@ -22,6 +22,7 @@ class KaggleAPIConnector:
         """Download and unzip competition data using the Kaggle API."""
         # only download data if it hasn't been downloaded yet
         if not os.listdir(self.data_dir):
+            print(f"Downloading data for {self.competition_name}...")
             self.api.competition_download_files(self.competition_name, path=self.data_dir, force=True, quiet=False)
             self.unzip_data()
             print(f"Data for {self.competition_name} has been downloaded to {self.data_dir}")
@@ -39,16 +40,19 @@ class KaggleAPIConnector:
 
     def submit(self, file_path, message):
         """Submit the results to the Kaggle competition."""
+        print(f"Submitting {file_path} to {self.competition_name}...")
         submission_result = self.api.competition_submit(file_path, message, self.competition_name)
         print(submission_result)
 
 # Usage
 if __name__ == '__main__':
+    COMPETITION_NAME = 'spaceship-titanic'
+
     # You would set these environment variables outside of the script for security reasons
     kaggle_username = os.environ.get('KAGGLE_USERNAME')
     kaggle_key = os.environ.get('KAGGLE_KEY')
 
-    kaggle_connector = KaggleAPIConnector('playground-series-s3e24')
+    kaggle_connector = KaggleAPIConnector(COMPETITION_NAME)
     kaggle_connector.download_data()
 
     # Now you can do other tasks like loading the data, and when ready, submit your results

@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 import joblib
+from feature_engineering import custom_feature_engineering
 
 
 # Memory reduction function
@@ -45,17 +46,23 @@ def reduce_mem_usage(df, verbose=True):
 
 
 # Function to preprocess the data
-# Function to preprocess the data
 def preprocess_data(df, numerical_cols, categorical_cols, encoder=None, imputer_num=None, imputer_cat=None, scaler=None, fit=True, id_column=None):
+    # Add custom feature engineering steps
+    df, numerical_cols, categorical_cols = custom_feature_engineering(df, numerical_cols, categorical_cols)
+
     # Reduce memory usage in place
     reduce_mem_usage(df)
 
     # Separate ID column if present
     df_id = df[id_column] if id_column in df else pd.DataFrame()
+    df = df.drop(id_column, axis=1) if id_column in df else df
 
     # Remove ID column for processing
     if id_column in numerical_cols: numerical_cols.remove(id_column)
     if id_column in categorical_cols: categorical_cols.remove(id_column)
+
+    print(f"numerical_cols: {numerical_cols}")
+    print(f"categorical_cols: {categorical_cols}")
 
     # Initialize imputers and scaler if fitting
     if fit:
@@ -97,9 +104,9 @@ if __name__ == '__main__':
     print("Starting data preprocessing...")
 
     # competition specific, change as needed
-    COMPETITION_NAME = 'playground-series-s3e24'
-    TARGET_COLUMN = 'smoking'
-    ID_COLUMN = 'id'
+    COMPETITION_NAME = 'spaceship-titanic'
+    TARGET_COLUMN = 'Transported'
+    ID_COLUMN = 'PassengerId'
 
     ######################## Define data paths ########################
     data_dir = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
@@ -117,6 +124,9 @@ if __name__ == '__main__':
     numerical_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
 
+    print(f"Numerical columns ({len(numerical_cols)}): {numerical_cols}")
+    print(f"Categorical columns ({len(categorical_cols)}): {categorical_cols}")
+
     ######################## Preprocess the training data ########################
     print("---------------------------------")
     print("Preprocessing training data...")
@@ -125,7 +135,6 @@ if __name__ == '__main__':
     )
 
     ######################## Save the preprocessed training data ########################
-    print("Saving preprocessed training data...")
     X_train.to_csv(os.path.join(data_dir, 'X_train_preprocessed.csv'), index=False)
     y_train.to_csv(os.path.join(data_dir, 'y_train.csv'), index=False)
     joblib.dump(imputer_num, os.path.join(data_dir, 'imputer_num.joblib'))
