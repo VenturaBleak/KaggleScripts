@@ -7,8 +7,22 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 import joblib
+import re
+
 from feature_engineering import custom_feature_engineering
 
+# Function to sanitize column names (allow only valid UTF-8 characters)
+def sanitize_column_names(df):
+    # Define a regex pattern for valid UTF-8 characters
+    valid_utf8_char_pattern = re.compile(r'[\w\s-]', flags=re.UNICODE)
+
+    # Replace invalid characters with an underscore
+    df.columns = [''.join(valid_utf8_char_pattern.findall(col)) if col else col for col in df.columns]
+
+    # Optionally, you can also replace spaces with underscores if desired
+    df.columns = df.columns.str.replace(' ', '_')
+
+    return df
 
 # Memory reduction function
 def reduce_mem_usage(df, verbose=True):
@@ -36,6 +50,9 @@ def reduce_mem_usage(df, verbose=True):
                 else:
                     df[col] = df[col].astype(np.float32)
 
+        elif col_type == object:
+            df[col] = df[col].astype('category')
+
     end_mem = df.memory_usage().sum() / 1024 ** 2
     if verbose:
         print('Memory usage before optimization: {:.2f} MB'.format(start_mem))
@@ -46,7 +63,17 @@ def reduce_mem_usage(df, verbose=True):
 
 
 # Function to preprocess the data
-def preprocess_data(df, numerical_cols, categorical_cols, encoder=None, imputer_num=None, imputer_cat=None, scaler=None, fit=True, id_column=None):
+def preprocess_data(df, encoder=None, imputer_num=None, imputer_cat=None, scaler=None, fit=True, id_column=None):
+    # Sanitize column names
+    df = sanitize_column_names(df)
+
+    ######################## Define columns ########################
+    numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+
+    print(f"Numerical columns ({len(numerical_cols)}): {numerical_cols}")
+    print(f"Categorical columns ({len(categorical_cols)}): {categorical_cols}")
+
     # Add custom feature engineering steps
     df, numerical_cols, categorical_cols = custom_feature_engineering(df, numerical_cols, categorical_cols)
 
@@ -68,30 +95,34 @@ def preprocess_data(df, numerical_cols, categorical_cols, encoder=None, imputer_
     if fit:
         if numerical_cols:
             imputer_num = SimpleImputer(strategy='mean')
-            scaler = StandardScaler()
+            # scaler = StandardScaler()
+            scaler = None
         if categorical_cols:
             imputer_cat = SimpleImputer(strategy='most_frequent')
-            encoder = BinaryEncoder(cols=categorical_cols)
+            # encoder = BinaryEncoder(cols=categorical_cols)
+            encoder = None
 
     # Process categorical columns if they exist
     if categorical_cols:
         # Impute and encode categorical columns
         if fit:
             df[categorical_cols] = imputer_cat.fit_transform(df[categorical_cols])
-            df = encoder.fit_transform(df)
+            # df = encoder.fit_transform(df)
+            encoder = None
         else:
             df[categorical_cols] = imputer_cat.transform(df[categorical_cols])
-            df = encoder.transform(df)
+            # df = encoder.transform(df)
+            encoder = None
 
     # Process numerical columns if they exist
     if numerical_cols:
         # Impute and scale numerical columns
         if fit:
             df[numerical_cols] = imputer_num.fit_transform(df[numerical_cols])
-            df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
+            # df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
         else:
             df[numerical_cols] = imputer_num.transform(df[numerical_cols])
-            df[numerical_cols] = scaler.transform(df[numerical_cols])
+            # df[numerical_cols] = scaler.transform(df[numerical_cols])
 
     # Combine ID column back if it was separated
     if not df_id.empty:
@@ -104,9 +135,9 @@ if __name__ == '__main__':
     print("Starting data preprocessing...")
 
     # competition specific, change as needed
-    COMPETITION_NAME = 'spaceship-titanic'
-    TARGET_COLUMN = 'Transported'
-    ID_COLUMN = 'PassengerId'
+    COMPETITION_NAME = 'playground-series-s3e24'
+    TARGET_COLUMN = 'smoking'
+    ID_COLUMN = 'id'
 
     ######################## Define data paths ########################
     data_dir = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
@@ -120,18 +151,15 @@ if __name__ == '__main__':
     print("Splitting data into train and validation sets...")
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    ######################## Define columns ########################
-    numerical_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    # catego and num cols
     categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
-
-    print(f"Numerical columns ({len(numerical_cols)}): {numerical_cols}")
-    print(f"Categorical columns ({len(categorical_cols)}): {categorical_cols}")
+    numerical_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
 
     ######################## Preprocess the training data ########################
     print("---------------------------------")
     print("Preprocessing training data...")
     X_train, encoder, imputer_num, imputer_cat, scaler = preprocess_data(
-        X_train, numerical_cols, categorical_cols, fit=True, id_column=ID_COLUMN
+        X_train, fit=True, id_column=ID_COLUMN
     )
 
     ######################## Save the preprocessed training data ########################
@@ -147,7 +175,7 @@ if __name__ == '__main__':
     print("---------------------------------")
     print("Preprocessing validation data...")
     X_val, _, _, _, _ = preprocess_data(
-        X_val, numerical_cols, categorical_cols, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
+        X_val, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
     )
     X_val.to_csv(os.path.join(data_dir, 'X_val_preprocessed.csv'), index=False)
     y_val.to_csv(os.path.join(data_dir, 'y_val.csv'), index=False)
@@ -159,7 +187,7 @@ if __name__ == '__main__':
     X_full_train = df_full_train.drop(TARGET_COLUMN, axis=1)
     y_full_train = df_full_train[TARGET_COLUMN]
     X_full_train, _, _, _, _ = preprocess_data(
-        X_full_train, numerical_cols, categorical_cols, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
+        X_full_train, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
     )
     X_full_train.to_csv(os.path.join(data_dir, 'X_full_train_preprocessed.csv'), index=False)
     y_full_train.to_csv(os.path.join(data_dir, 'y_full_train.csv'), index=False)
@@ -169,7 +197,7 @@ if __name__ == '__main__':
     print("Preprocessing test data...")
     df_test = pd.read_csv(test_path)
     X_test, _, _, _, _ = preprocess_data(
-        df_test, numerical_cols, categorical_cols, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
+        df_test, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
     )
     X_test.to_csv(os.path.join(data_dir, 'X_test_preprocessed.csv'), index=False)
 
