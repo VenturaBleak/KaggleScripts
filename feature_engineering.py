@@ -18,5 +18,5 @@ def add_name_features(df, numerical_cols, categorical_cols):
 
 def custom_feature_engineering(df, numerical_cols, categorical_cols):
     # Here you can add more custom feature engineering steps if needed
-    df, numerical_cols, categorical_cols = add_name_features(df, numerical_cols, categorical_cols)
+    # df, numerical_cols, categorical_cols = add_name_features(df, numerical_cols, categorical_cols)
     return df, numerical_cols, categorical_cols
