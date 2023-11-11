@@ -135,9 +135,10 @@ if __name__ == '__main__':
     print("Starting data preprocessing...")
 
     # competition specific, change as needed
-    COMPETITION_NAME = 'playground-series-s3e24'
-    TARGET_COLUMN = 'smoking'
+    COMPETITION_NAME = 'playground-series-s3e9'
+    TARGET_COLUMN = 'Strength'
     ID_COLUMN = 'id'
+    PROBLEM_TYPE = 'regression'  # 'classification' or 'regression'
 
     ######################## Define data paths ########################
     data_dir = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
@@ -148,6 +149,15 @@ if __name__ == '__main__':
     df_train = pd.read_csv(train_path)
     X = df_train.drop(TARGET_COLUMN, axis=1)
     y = df_train[TARGET_COLUMN]
+
+    # detect whether the problem is classification or regression
+    if PROBLEM_TYPE == 'classification':
+        # set dataype to int for y
+        y = y.astype(np.int8)
+    elif PROBLEM_TYPE == 'regression':
+        # set dataype to float for y
+        y = y.astype(np.float32)
+
     print("Splitting data into train and validation sets...")
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -186,6 +196,14 @@ if __name__ == '__main__':
     df_full_train = pd.read_csv(train_path)
     X_full_train = df_full_train.drop(TARGET_COLUMN, axis=1)
     y_full_train = df_full_train[TARGET_COLUMN]
+    # detect whether the problem is classification or regression
+    if PROBLEM_TYPE == 'classification':
+        # set dataype to int for y
+        y_full_train = y_full_train.astype(np.int8)
+    elif PROBLEM_TYPE == 'regression':
+        # set dataype to float for y
+        y_full_train = y_full_train.astype(np.float32)
+
     X_full_train, _, _, _, _ = preprocess_data(
         X_full_train, encoder, imputer_num, imputer_cat, scaler, fit=False, id_column=ID_COLUMN
     )

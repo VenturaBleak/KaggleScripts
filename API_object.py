@@ -46,7 +46,7 @@ class KaggleAPIConnector:
 
 # Usage
 if __name__ == '__main__':
-    COMPETITION_NAME = 'playground-series-s3e24'
+    COMPETITION_NAME = 'playground-series-s3e9'
 
     # You would set these environment variables outside of the script for security reasons
     kaggle_username = os.environ.get('KAGGLE_USERNAME')
@@ -57,4 +57,4 @@ if __name__ == '__main__':
 
     # Now you can do other tasks like loading the data, and when ready, submit your results
     submission_path = os.path.join(kaggle_connector.data_dir, 'submission.csv')
-    kaggle_connector.submit(submission_path, 'Your submission message')
+    # kaggle_connector.submit(submission_path, 'Your submission message')
