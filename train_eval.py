@@ -4,18 +4,20 @@ import numpy as np
 import os
 import lightgbm as lgb
 import optuna
-from sklearn.metrics import roc_auc_score, log_loss, mean_absolute_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, log_loss
 from optuna.samplers import TPESampler
 from sklearn.model_selection import StratifiedKFold, KFold
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from data_preprocessing import reduce_mem_usage
 
 
 # Adjusted objective function for different task types
 def objective(trial, X, y, task_type, n_splits=5):
     param = {
         'verbosity': -1,
-        'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
+        'n_estimators': trial.suggest_int('n_estimators', 100, 5000),
         'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.1),
         'reg_alpha': trial.suggest_float('reg_alpha', 0.001, 10.0),
         'reg_lambda': trial.suggest_float('reg_lambda', 0.001, 10.0),
@@ -34,6 +36,8 @@ def objective(trial, X, y, task_type, n_splits=5):
     param['metric'] = task_type.metric
     if task_type.num_class is not None:
         param['num_class'] = task_type.num_class
+        labels = np.unique(y)
+        print(f"Labels: {labels}")
     Model = task_type.model
     eval_metric = task_type.eval_metric
 
@@ -45,8 +49,13 @@ def objective(trial, X, y, task_type, n_splits=5):
         y_train_fold, y_valid_fold = y.iloc[train_index], y.iloc[valid_index]
         model = Model(**param)
         model.fit(X_train_fold, y_train_fold, eval_set=[(X_valid_fold, y_valid_fold)], callbacks=[lgb.early_stopping(100)])
-        valid_pred = model.predict_proba(X_valid_fold)[:, 1] if task_type.objective != 'regression' else model.predict(X_valid_fold)
-        cv_score = eval_metric(y_valid_fold, valid_pred)
+        if task_type.objective == 'binary':
+            valid_pred = model.predict_proba(X_valid_fold)[:, 1]
+        elif task_type.objective == 'multiclass':
+            valid_pred = model.predict_proba(X_valid_fold)
+        else:
+            valid_pred = model.predict(X_valid_fold)
+        cv_score = eval_metric(y_valid_fold, valid_pred, labels=labels) if task_type.objective == 'multiclass' else eval_metric(y_valid_fold, valid_pred)
         cv_scores.append(cv_score)
     return np.mean(cv_scores)
 
@@ -66,7 +75,13 @@ def kfold_predict(X, y, X_test, best_params, task_type, n_splits=5, seed=42):
         y_train_fold, y_valid_fold = y.iloc[train_index], y.iloc[valid_index]
         model = Model(**best_params)
         model.fit(X_train_fold, y_train_fold, eval_set=[(X_valid_fold, y_valid_fold)], callbacks=[lgb.early_stopping(100)])
-        test_preds += model.predict_proba(X_test)[:, 1] / n_splits if task_type.objective != 'regression' else model.predict(X_test) / n_splits
+
+        if task_type.objective == 'binary':
+            test_preds += model.predict_proba(X_test)[:, 1] / n_splits
+        elif task_type.objective == 'multiclass':
+            test_preds += model.predict_proba(X_test) / n_splits
+        else:
+            test_preds += model.predict(X_test) / n_splits
     return test_preds
 
 class TaskType():
@@ -75,36 +90,48 @@ class TaskType():
 
     # Function to determine the type of task
     def determine_task_type(self, y):
+        print(f"Detecting task type... {y.dtype}")
         if y.dtype == 'float':
             self.objective = 'regression'
-            self.metric = 'mean_absolute_error'
-            self.eval_metric = mean_absolute_error
+            self.metric, self.eval_metric = self.prompt_regression_metric()
             self.model = lgb.LGBMRegressor
             self.num_class = None
-        elif y.dtype == 'int':
+        else:
             if len(np.unique(y)) == 2:
                 print("Binary classification detected")
                 self.objective = 'binary'
-                self.metric = 'roc_auc_score'
-                self.eval_metric = roc_auc_score
+                self.metric = 'binary_logloss'
+                self.eval_metric = log_loss
                 self.model = lgb.LGBMClassifier
                 self.num_class = None
             else:
                 print("Multiclass classification detected")
                 self.objective = 'multiclass'
-                self.metric = 'log_loss'
+                self.metric = 'multi_logloss'
                 self.eval_metric = log_loss
                 self.model = lgb.LGBMClassifier
                 self.num_class = len(np.unique(y))
 
+    # Function to prompt user for regression metric
+    def prompt_regression_metric(self):
+        while True:
+            user_input = input(
+                "Choose a regression metric (mae for Mean Absolute Error or rmse for Root Mean Squared Error): ").strip().lower()
+            if user_input == 'mae':
+                return 'l1', mean_absolute_error
+            elif user_input == 'rmse':
+                return 'l2', lambda y_true, y_pred: mean_squared_error(y_true, y_pred, squared=False)
+            else:
+                print("Invalid input. Please enter 'mae' or 'rmse'.")
+
 # The main part of the script
 if __name__ == '__main__':
     # competition specific, change as needed
-    COMPETITION_NAME = 'playground-series-s3e9'
-    TARGET_COLUMN = 'Strength'
+    COMPETITION_NAME = 'tabular-playground-series-jan-2021'
+    TARGET_COLUMN = 'target'
     ID_COLUMN = 'id'
 
-    OPTIMIZATION_TIME = 3600 / 24 # 3600 seconds = 1 hour
+    OPTIMIZATION_TIME = 3600 / 2 # 3600 seconds = 1 hour
 
     # Define constants
     DATA_DIR = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
@@ -113,28 +140,18 @@ if __name__ == '__main__':
     X_train = pd.read_csv(os.path.join(DATA_DIR, 'X_full_train_preprocessed.csv'))
     X_train = X_train.drop([ID_COLUMN], axis=1)
     y_train = pd.read_csv(os.path.join(DATA_DIR, 'y_full_train.csv'))[TARGET_COLUMN]
+    X_train = reduce_mem_usage(X_train)
 
     # Determine task type
     TaskType = TaskType(y_train)
 
-    # Load test data
-    df_test = pd.read_csv(os.path.join(DATA_DIR, 'test.csv'))
-    X_test = pd.read_csv(os.path.join(DATA_DIR, 'X_test_preprocessed.csv'))
-    X_test = X_test.drop([ID_COLUMN], axis=1)
 
-    # reduce memory usage
-    from data_preprocessing import reduce_mem_usage
-    X_train = reduce_mem_usage(X_train)
-    X_test = reduce_mem_usage(X_test)
+
 
     # Optuna optimization
     sampler = TPESampler(seed=42)
-    if TaskType.objective == 'binary':
-        # maximize roc_auc_score for binary classification
-        study = optuna.create_study(direction='maximize', sampler=sampler)
-    else:
-        # minimize log_loss for multiclass; minimize mean_absolute_error for regression
-        study = optuna.create_study(direction='minimize', sampler=sampler)
+    # minimize log_loss for multiclass; minimize mean_absolute_error for regression
+    study = optuna.create_study(direction='minimize', sampler=sampler)
     study.optimize(lambda trial: objective(trial, X_train, y_train, task_type=TaskType), timeout=OPTIMIZATION_TIME) # 3600 seconds = 1 hour
 
     # Output the best hyperparameters
@@ -155,9 +172,20 @@ if __name__ == '__main__':
     plt.title("Feature importance")
     plt.show()
 
+    # Load test data
+    df_test = pd.read_csv(os.path.join(DATA_DIR, 'test.csv'))
+    X_test = pd.read_csv(os.path.join(DATA_DIR, 'X_test_preprocessed.csv'))
+    X_test = X_test.drop([ID_COLUMN], axis=1)
+    X_test = reduce_mem_usage(X_test)
+
     # Use best hyperparameters to train the model on the full training dataset and make predictions
     print("Training model on the full training set with best parameters found and making predictions...")
     test_predictions = kfold_predict(X_train, y_train, X_test, best_params, task_type=TaskType,n_splits=5)
+
+    # round to nearest integer
+    # test_predictions = np.rint(test_predictions).astype(int)
+    # # max 5
+    # test_predictions[test_predictions > 5] = 5
 
     # Prepare submission
     submission = pd.DataFrame({
