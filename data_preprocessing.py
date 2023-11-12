@@ -135,10 +135,12 @@ if __name__ == '__main__':
     print("Starting data preprocessing...")
 
     # competition specific, change as needed
-    COMPETITION_NAME = 'playground-series-s3e9'
-    TARGET_COLUMN = 'Strength'
+    COMPETITION_NAME = 'tabular-playground-series-jan-2021'
+    TARGET_COLUMN = 'target'
     ID_COLUMN = 'id'
-    PROBLEM_TYPE = 'regression'  # 'classification' or 'regression'
+
+    # 'classification' or 'regression'
+    PROBLEM_TYPE = 'regression'
 
     ######################## Define data paths ########################
     data_dir = os.path.join(os.getcwd(), COMPETITION_NAME, 'data')
@@ -153,7 +155,7 @@ if __name__ == '__main__':
     # detect whether the problem is classification or regression
     if PROBLEM_TYPE == 'classification':
         # set dataype to int for y
-        y = y.astype(np.int8)
+        y = y.astype(int)
     elif PROBLEM_TYPE == 'regression':
         # set dataype to float for y
         y = y.astype(np.float32)
