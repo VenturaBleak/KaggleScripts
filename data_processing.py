@@ -39,7 +39,7 @@ def reduce_mem_usage(df, verbose=True):
 # if name == 'main':
 if __name__ == '__main__':
     # data path
-    data_dir = os.path.join(os.getcwd(), 'playground-series-s3e24', 'data')
+    data_dir = os.path.join(os.getcwd(), 'playground-series-s5e2', 'data')
 
     # Load data
     df = pd.read_csv(os.path.join(data_dir, 'train.csv'))
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     df = reduce_mem_usage(df)
 
     # specify target column
-    target_column = 'smoking'  # replace 'target_column' with the name of your target column
+    target_column = 'Price'  # replace 'target_column' with the name of your target column
 
     # Split data into features and target
     X = df.drop(target_column, axis=1)  # replace 'target_column' with the name of your target column
