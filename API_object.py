@@ -29,6 +29,7 @@ class KaggleAPIConnector:
                 force=True,
                 quiet=False
             )
+
             self.unzip_data()
             print(f"Competition data for {self.competition_name} has been downloaded to {self.data_dir}")
         else:
@@ -73,7 +74,7 @@ class KaggleAPIConnector:
 # User Interaction for Submission
 # -----------------------
 if __name__ == '__main__':
-    COMPETITION_NAME = 'playground-series-s5e2'
+    COMPETITION_NAME = 'playground-series-s5e3'
     kaggle_connector = KaggleAPIConnector(COMPETITION_NAME)
 
     # Download competition data

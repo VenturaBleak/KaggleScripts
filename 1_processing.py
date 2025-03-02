@@ -43,11 +43,12 @@ def fill_missing(df):
 
 def encode_categorical(df, categorical_cols):
     """
-    Encode categorical columns using one-hot encoding.
-    (Here we use pandas.get_dummies for simplicity.)
+    Encode categorical columns using binary encoding from category_encoders.
     """
-    return pd.get_dummies(df, columns=categorical_cols, drop_first=True)
-
+    from category_encoders import BinaryEncoder
+    encoder = BinaryEncoder(cols=categorical_cols, drop_invariant=True)
+    df = encoder.fit_transform(df)
+    return df
 
 def scale_numeric(train_df, test_df, numeric_cols):
     """
